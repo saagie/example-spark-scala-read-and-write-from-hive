@@ -1,13 +1,12 @@
 package io.saagie.example.hive
 
-import org.apache.log4j.LogManager
-import org.apache.spark.{SparkConf, SparkContext}
-import org.apache.spark.sql.hive.HiveContext
+import org.apache.log4j.{LogManager, Logger}
+import org.apache.spark.sql.{SaveMode, SparkSession}
 import scopt.OptionParser
 
-object Main{
+object Main {
 
-  val logger = LogManager.getLogger(this.getClass())
+  val logger: Logger = LogManager.getLogger(getClass)
 
   case class CLIParams(hiveHost: String = "")
 
@@ -20,33 +19,31 @@ object Main{
 
     parser.parse(args, CLIParams()) match {
       case Some(params) =>
+        // Creation of SparkSession
+        val sparkSession = SparkSession.builder()
+          .appName("example-spark-scala-read-and-write-from-hive")
+          .config("hive.metastore.warehouse.dir", params.hiveHost + "user/hive/warehouse")
+          .enableHiveSupport()
+          .getOrCreate()
 
-    // Configuration of SparkContext
-    val conf = new SparkConf().setAppName("example-spark-scala-read-and-write-from-hive")
+        // ====== Creating a dataframe with 1 partition
+        import sparkSession.implicits._
+        val df = Seq(HelloWorld("helloworld")).toDF().coalesce(1)
 
-    // Creation of SparContext and SQLContext
-    val sc = new SparkContext(conf)
-    val hiveContext = new HiveContext(sc)
+        // ======= Writing files
+        // Writing Dataframe as a Hive table
+        import sparkSession.sql
 
-    // Configuring hiveContext to find hive metastore
-    hiveContext.setConf("hive.metastore.warehouse.dir", params.hiveHost + "user/hive/warehouse")
+        sql("DROP TABLE IF EXISTS helloworld")
+        sql("CREATE TABLE helloworld (message STRING)")
+        df.write.mode(SaveMode.Overwrite).saveAsTable("helloworld")
+        logger.info("Writing hive table : OK")
 
-    // ====== Creating a dataframe with 1 partition
-    import hiveContext.implicits._
-    val df = Seq(HelloWorld("helloworld")).toDF().coalesce(1)
-
-    // ======= Writing files
-    // Writing Dataframe as a Hive table
-    hiveContext.sql("DROP TABLE IF EXISTS helloworld")
-    hiveContext.sql("CREATE TABLE helloworld (message STRING)")
-    df.write.mode("overwrite").saveAsTable("helloworld");
-    logger.info("Writing hive table : OK")
-
-    // ======= Reading files
-    // Reading hive table into a Spark Dataframe
-    val dfHive = hiveContext.sql("SELECT * from helloworld")
-    logger.info("Reading hive table : OK")
-    logger.info(dfHive.show())
+        // ======= Reading files
+        // Reading hive table into a Spark Dataframe
+        val dfHive = sql("SELECT * from helloworld")
+        logger.info("Reading hive table : OK")
+        logger.info(dfHive.show())
 
       case None =>
       // arguments are bad, error message will have been displayed
